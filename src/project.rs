@@ -1,9 +1,10 @@
 use tokio::sync::mpsc::{Receiver, Sender};
 use bytes::Bytes;
-use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::io::{BufReader, Read};
 use notify::event::{Event, EventKind, CreateKind, ModifyKind};
+
+use crate::file::{CompassFile, CompassFileError};
+use crate::message::{Message, convert_messages_to_bytes};
 
 const COMPASS_BINARY_EXT: &str = ".BIN";
 
@@ -11,12 +12,19 @@ const COMPASS_BINARY_EXT: &str = ".BIN";
 pub enum ProjectError {
     ProjectDirError,
     RunDirError,
-    RunFilesError(std::io::Error)
+    ProjectIOError(std::io::Error),
+    RunFileError(CompassFileError)
 }
 
 impl From<std::io::Error> for ProjectError {
     fn from(value: std::io::Error) -> Self {
-        ProjectError::RunFilesError(value)
+        ProjectError::ProjectIOError(value)
+    }
+}
+
+impl From<CompassFileError> for ProjectError {
+    fn from(value: CompassFileError) -> Self {
+        ProjectError::RunFileError(value)
     }
 }
 
@@ -25,7 +33,8 @@ impl std::fmt::Display for ProjectError {
         match self {
             ProjectError::ProjectDirError => write!(f, "Project encountered a top level directory error!"),
             ProjectError::RunDirError => write!(f, "Project encountered a run directory error!"),
-            ProjectError::RunFilesError(e) => write!(f, "Project encountered a run file error: {}", e),
+            ProjectError::ProjectIOError(e) => write!(f, "Project encountered a generic io error: {}", e),
+            ProjectError::RunFileError(e) => write!(f, "Project encountered an error with the run files: {}", e)
         }
     }
 }
@@ -150,7 +159,7 @@ impl Project {
 #[derive(Debug)]
 struct ActiveRun {
     directory: PathBuf,
-    data_files: Vec<BufReader<File>>
+    data_files: Vec<CompassFile>
 }
 
 impl ActiveRun {
@@ -173,8 +182,7 @@ impl ActiveRun {
         for item in new_dir.read_dir()? {
             let filepath = &item?.path();
             if filepath.extension().unwrap() == COMPASS_BINARY_EXT {
-                let file = File::open(filepath)?;
-                current_run.data_files.push(BufReader::new(file));
+                current_run.data_files.push(CompassFile::new(filepath)?);
             }
         }
 
@@ -184,17 +192,15 @@ impl ActiveRun {
     }
 
     fn read_data_from_all_files(&mut self) -> Bytes {
-        let mut data: Vec<u8> = vec![];
+        let mut messages: Vec<Message> = vec![];
 
         for handle in self.data_files.iter_mut() {
-            match handle.read_to_end(&mut data) {
-                Ok(_size) => {},
-                Err(e) => {
-                    println!("Recieved an error while reading some data from file: {}", e);
-                }
+            match handle.read_data() {
+                Ok(mess) => messages.push(mess),
+                Err(e) => println!("An error occurred reading file data: {}", e)
             }
         }
 
-        Bytes::from(data)
+        convert_messages_to_bytes(messages)
     }
 }

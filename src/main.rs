@@ -1,6 +1,8 @@
 mod server;
 mod watcher;
 mod project;
+mod file;
+mod message;
 
 use bytes::Bytes;
 use std::sync::Arc;
