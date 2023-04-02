@@ -7,10 +7,10 @@ pub fn create_watcher(queue: Sender<Event>) -> Result<Box<dyn Watcher>, notify::
     let ritual = Box::new(RecommendedWatcher::new(move |event| 
         {
             if let Ok(data) = event {
-                println!("Received an event: {:?}", data);
+                tracing::info!("Received an event: {:?}", data);
                 match queue.blocking_send(data) {
-                    Ok(()) => { println!("Sent!")},
-                    Err(_) => println!("RitualWatcher ran into an error trying to send an event!")
+                    Ok(()) => { tracing::trace!("Sent!")},
+                    Err(_) => tracing::error!("RitualWatcher ran into an error trying to send an event!")
                 };
             }
         }, 

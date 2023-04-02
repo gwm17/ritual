@@ -10,3 +10,5 @@ bitflags = "2.0.2"
 bytes = "1.4.0"
 notify = { version = "5.1.0", default-features = false, features = ["macos_kqueue"] }
 tokio = { version = "1.26.0", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"

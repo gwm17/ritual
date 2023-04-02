@@ -70,13 +70,13 @@ impl Project {
 
         let proj = Project { project_path: path.to_path_buf(), active_run: None, event_queue: event, data_queue: data };
 
-        println!("Hooked to project directory: {}", proj.project_path.display());
+        tracing::trace!("Hooked to project directory: {}", proj.project_path.display());
         return Ok(proj);
     }
 
     pub async fn handle_events(&mut self) -> Result<(), ProjectError> {
         loop {
-            println!("Started running!");
+            tracing::trace!("Started running!");
             match self.event_queue.recv().await {
                 Some(event) => {
                     match &event.kind {
@@ -91,29 +91,29 @@ impl Project {
                         EventKind::Modify(kind) => {
                             match kind {
                                 ModifyKind::Any => {
-                                    println!("Here!");
+                                    tracing::trace!("Here!");
                                     self.handle_modify_file(&event).await
                                 }
                                 _ => {}
                             }
                         },
-                        _ => { println!("Something else!")}
+                        _ => { tracing::trace!("Something else!")}
                     }
                 },
                 None => {
-                    println!("Notify event queue is shutdown");
+                    tracing::info!("Notify event queue is shutdown");
                     return Ok(())
                 }
             };
-            println!("I made it through!")
+            tracing::trace!("I made it through!")
         }
     }
 
     fn handle_create_dir(&mut self, event: &Event) {
 
-        println!("Create dir occurred!");
+        tracing::trace!("Create dir occurred!");
         if event.paths.len() == 0 {
-            println!("Create with no paths occured!");
+            tracing::trace!("Create with no paths occured!");
             return;
         }
         
@@ -122,7 +122,7 @@ impl Project {
                 self.active_run = match ActiveRun::new(path) {
                     Ok(ar) => Some(ar),
                     Err(e) => {
-                        println!("Found a dir that looks like a run, but couldn't be inited at Project::handle_create_dir! Error: {}", e);
+                        tracing::error!("Found a dir that looks like a run, but couldn't be inited at Project::handle_create_dir! Error: {}", e);
                         return
                     }
                 };
@@ -132,10 +132,10 @@ impl Project {
     }
 
     async fn handle_modify_file(&mut self, event: &Event) {
-        println!("Modify file occurred!");
+        tracing::trace!("Modify file occurred!");
 
         if event.paths.len() == 0 {
-            println!("Modify event with no paths occured!");
+            tracing::trace!("Modify event with no paths occured!");
             return;
         }
         else if self.active_run.is_none() {
@@ -147,7 +147,7 @@ impl Project {
                 let data = self.active_run.as_mut().unwrap().read_data_from_all_files();
                 match self.data_queue.send(data).await {
                     Ok(_) => {},
-                    Err(e) => println!("Error on sending data from Project::handle_modify_file: {}", e)
+                    Err(e) => tracing::error!("Error on sending data from Project::handle_modify_file: {}", e)
                 };
                 return;
             }
@@ -167,13 +167,13 @@ impl ActiveRun {
     fn new(new_dir: &Path) -> Result<ActiveRun, ProjectError> {
 
         if !new_dir.exists() || !new_dir.is_dir() {
-            println!("Run directory does not exist: {}", new_dir.display());
+            tracing::trace!("Run directory does not exist: {}", new_dir.display());
             return Err(ProjectError::RunDirError);
         }
 
         let data_directory = new_dir.join("/UNFILTERED/");
         if !data_directory.exists() {
-            println!("Data directory does not exist: {}", data_directory.display());
+            tracing::trace!("Data directory does not exist: {}", data_directory.display());
             return Err(ProjectError::RunDirError);
         }
 
@@ -186,7 +186,7 @@ impl ActiveRun {
             }
         }
 
-        println!("Reading data in run directory: {}", current_run.directory.display());
+        tracing::trace!("Reading data in run directory: {}", current_run.directory.display());
 
         return Ok(current_run);
     }
@@ -197,7 +197,7 @@ impl ActiveRun {
         for handle in self.data_files.iter_mut() {
             match handle.read_data() {
                 Ok(mess) => messages.push(mess),
-                Err(e) => println!("An error occurred reading file data: {}", e)
+                Err(e) => tracing::error!("An error occurred reading file data: {}", e)
             }
         }
 

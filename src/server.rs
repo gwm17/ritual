@@ -1,13 +1,12 @@
 use std::fmt::Display;
 use std::error::Error;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::AsyncWriteExt;
-use std::net::SocketAddr;
-use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::{Mutex, mpsc::{Receiver, Sender, channel}};
 use bytes::Bytes;
-use tokio::sync::Mutex;
 
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -82,7 +81,7 @@ impl ServerListener {
             Ok(net) => ServerListener { listener: net, connection_queue: tx, address: addr.parse().unwrap() },
             Err(e) => return Err(ServerError::StartupError(e))
         };
-        println!("Server listening at address: {}", listener.address);
+        tracing::info!("Server listening at address: {}", listener.address);
         Ok((listener, rx))
     }
 
@@ -90,7 +89,10 @@ impl ServerListener {
         
         loop {
             let (stream, address) = match self.listener.accept().await {
-                Ok(cxn) => cxn,
+                Ok(cxn) => {
+                    tracing::info!("Connected to client at {}", cxn.1);
+                    cxn
+                },
                 Err(e) => return Err(ServerError::StartupError(e))
             };
 
@@ -119,13 +121,13 @@ impl ConnectionHandler {
                 Some(cxn) => {
                     let mut list = self.connections.lock().await;
                     if list.len() == 5 {
-                        println!("Max number of connections (5) reached, cannot connect");
+                        tracing::warn!("Max number of connections (5) reached, cannot connect");
                     } else  {
                        list.push(cxn);
                     }
                 }
                 None => {
-                    println!("Listener was closed");
+                    tracing::info!("Listener was closed");
                     break;
                 }
             }
@@ -153,7 +155,7 @@ impl ServerSender {
                         match cxn.write(&data).await {
                             Ok(()) => {},
                             Err(e) => {
-                                println!("Connection {} recieved the following error: {}. Closing connection.", cxn.address, e);
+                                tracing::info!("Connection {} recieved the following error: {}. Closing connection.", cxn.address, e);
                             }
                         };
                     }
@@ -161,7 +163,7 @@ impl ServerSender {
                     list.retain(|cxn| { *cxn.is_open() })
                 },
                 None =>  {
-                    println!("Sender closed at ServerSender::wait_for_data");
+                    tracing::info!("Sender closed at ServerSender::wait_for_data");
                     break
                 }
             }
