@@ -39,19 +39,27 @@ impl Error for ServerError {
 #[derive(Debug)]
 pub struct Connection {
     stream: TcpStream,
-    address: SocketAddr
+    address: SocketAddr,
+    is_open: bool
 }
 
 impl Connection {
 
     pub fn new(stream: TcpStream, addr: SocketAddr) -> Self {
-        Connection{ stream: stream, address: addr}
+        Connection{ stream: stream, address: addr, is_open: true}
+    }
+
+    pub fn is_open(&self) -> &bool {
+        &self.is_open
     }
 
     pub async fn write(&mut self, data: &Bytes) -> Result<(), ServerError> {
         match self.stream.write_all(data).await {
             Ok(()) => Ok(()),
-            Err(e) => Err(ServerError::ConnectionError(e, self.address.to_string()))
+            Err(e) => { 
+                self.is_open = false;
+                Err(ServerError::ConnectionError(e, self.address.to_string()))
+            }
         }
     }
 }
@@ -142,8 +150,15 @@ impl ServerSender {
                 Some(data) => {
                     let mut list = self.connections.lock().await;
                     for cxn in list.iter_mut() {
-                        cxn.write(&data).await?;
+                        match cxn.write(&data).await {
+                            Ok(()) => {},
+                            Err(e) => {
+                                println!("Connection {} recieved the following error: {}. Closing connection.", cxn.address, e);
+                            }
+                        };
                     }
+
+                    list.retain(|cxn| { *cxn.is_open() })
                 },
                 None =>  {
                     println!("Sender closed at ServerSender::wait_for_data");
