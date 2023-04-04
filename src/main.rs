@@ -3,15 +3,33 @@ mod watcher;
 mod project;
 mod file;
 mod message;
+mod config;
 
 use bytes::Bytes;
-// use std::sync::Arc;
-// use tokio::sync::Mutex;
-
-//use server::{ServerListener, ConnectionHandler, ServerSender, ConnectionList};
 use server::run_server;
 use watcher::create_watcher;
 use project::Project;
+use config::{Config, read_config_file};
+
+fn print_help() {
+    print!("Ritual is run as:\ncargo -r run -- <your_config>\nThe config file is a yaml file which contains the server address and project directory\n");
+}
+
+fn get_config(arg: &str) -> Option<Config> {
+    if arg == "--help" {
+        print_help();
+        return None;
+    }
+
+    let config = match read_config_file(&std::path::Path::new(arg)) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("Err {}", e);
+            return None;
+        }
+    };
+    Some(config)
+}
 
 #[tokio::main]
 async fn main() {
@@ -27,11 +45,22 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("Error occured setting up tracing!");
 
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() != 2 {
+        tracing::error!("Ritual requires an input yaml file!");
+        print_help();
+    }
+
+    let config = match get_config(&args[1]) {
+        Some(c) => c,
+        None => return
+    };
+
     let (data_sender, data_reciever) = tokio::sync::mpsc::channel::<Bytes>(10);
     let (event_sender, event_reciever) = tokio::sync::mpsc::channel::<notify::event::Event>(5);
     let (shutdown_sender, mut shutdown_reciever) = tokio::sync::mpsc::channel::<i32>(1);
 
-    match run_server("127.0.0.1:52324", data_reciever).await {
+    match run_server(&config.server_address, data_reciever).await {
         Ok(_) => {},
         Err(e) => {
             tracing::error!("Server initialization error: {}", e);
@@ -39,7 +68,7 @@ async fn main() {
         }
     };
 
-    let mut project = match Project::new(std::path::Path::new("test_project"), event_reciever, data_sender) {
+    let mut project = match Project::new(&config.project_directory, event_reciever, data_sender) {
         Ok(p) => p,
         Err(e) => {
             tracing::error!("Project initialization error: {}", e);
