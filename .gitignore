@@ -1,3 +1,5 @@
 /target
 /test_project
 /.vscode
+
+*.yaml
