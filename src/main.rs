@@ -11,6 +11,7 @@ use watcher::create_watcher;
 use project::Project;
 use config::{Config, read_config_file};
 
+//Simple help statement
 fn print_help() {
     print!("Ritual is run as:\ncargo -r run -- <your_config>\nThe config file is a yaml file which contains the server address and project directory\n");
 }
@@ -34,6 +35,7 @@ fn get_config(arg: &str) -> Option<Config> {
 #[tokio::main]
 async fn main() {
 
+    //Initialize tracing
     let subscriber = tracing_subscriber::fmt()
         .compact()
         .with_file(true)
@@ -45,6 +47,7 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("Error occured setting up tracing!");
 
+    //Retrieve config
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 {
         tracing::error!("Ritual requires an input yaml file!");
@@ -56,10 +59,12 @@ async fn main() {
         None => return
     };
 
+    //Data channels
     let (data_sender, data_reciever) = tokio::sync::mpsc::channel::<Bytes>(10);
     let (event_sender, event_reciever) = tokio::sync::mpsc::channel::<notify::event::Event>(5);
     let (shutdown_sender, mut shutdown_reciever) = tokio::sync::mpsc::channel::<i32>(1);
 
+    //Initialize the server, spawining server tasks
     match run_server(&config.server_address, data_reciever).await {
         Ok(_) => {},
         Err(e) => {
@@ -68,6 +73,7 @@ async fn main() {
         }
     };
 
+    //Initialize project
     let mut project = match Project::new(&config.project_directory, event_reciever, data_sender) {
         Ok(p) => p,
         Err(e) => {
@@ -75,6 +81,8 @@ async fn main() {
             return
         }
     };
+
+    //Spawn project, shutdown tasks
 
     tokio::spawn(async move {
         match project.handle_events().await {
@@ -95,6 +103,12 @@ async fn main() {
         }
     });
 
+    /*
+        Watcher is spawned differently. Notify is a synchronous crate, so we need to bridge
+        the synchronous code. This is done by using the blocking functionality of tokio channels,
+        and spawning a blocking task (essentially a blocking thread). This then serves as the "main"
+        thread of the app, and as such recieves any shutdown signals
+     */
     let result = tokio::task::spawn_blocking(move || {
             let mut watcher = match create_watcher(event_sender) {
                 Ok(w) => w,

@@ -6,6 +6,11 @@ use notify::event::{Event, EventKind, CreateKind, ModifyKind};
 use crate::file::{CompassFile, CompassFileError};
 use crate::message::{Message, convert_messages_to_bytes};
 
+/*
+    This file is kinda busy. May need a refactor.
+ */
+
+//File extension of CAEN CoMPASS binary data files
 const COMPASS_BINARY_EXT: &str = ".BIN";
 
 #[derive(Debug)]
@@ -43,6 +48,10 @@ impl std::error::Error for ProjectError {
 
 }
 
+/*
+    Check if the given Path is a run directory. This does not check if the Path is a directory.
+    Merely checks if the Path has the correct name format to be a run. (which should be run_#)
+ */
 fn is_run_dir(dir: &Path) -> bool {
     dir.file_name()
        .expect("Cannot retrieve directory name at is_run_dir")
@@ -51,8 +60,10 @@ fn is_run_dir(dir: &Path) -> bool {
        .contains("run_")
 }
 
-
-
+/*
+    Project is the representation of the CoMPASS project directory. It recieves Notify::Events when a directory/file
+    is created/updated, and then retrieves the relevant data and sends it off to the server through the data sender channel.
+ */
 #[derive(Debug)]
 pub struct Project {
     project_path: PathBuf,
@@ -63,6 +74,10 @@ pub struct Project {
 
 impl Project {
 
+    /*
+        Project needs the project path, a reciever channel for Notify::Events, and sender channel for binary data from
+        the CoMPASS data files.
+     */
     pub fn new(path: &Path, event: Receiver<Event>, data: Sender<Bytes>) -> Result<Self, ProjectError> {
         if !path.exists() {
             return Err(ProjectError::ProjectDirError);
@@ -74,6 +89,9 @@ impl Project {
         return Ok(proj);
     }
 
+    /*
+        The event handling loop. The main task which should be spawned for Project
+     */
     pub async fn handle_events(&mut self) -> Result<(), ProjectError> {
         loop {
             tracing::trace!("Started running!");
@@ -82,7 +100,7 @@ impl Project {
                     match &event.kind {
                         EventKind::Create(kind) => {
                             match kind {
-                                CreateKind::Folder => {
+                                CreateKind::Folder => { //Only care about directories being created
                                     self.handle_create_dir(&event)
                                 }
                                 _ => {}
@@ -90,7 +108,7 @@ impl Project {
                         },
                         EventKind::Modify(kind) => {
                             match kind {
-                                ModifyKind::Any => {
+                                ModifyKind::Any => { //I suspect that this will be an issue... doesn't seem specific enough
                                     tracing::trace!("Here!");
                                     self.handle_modify_file(&event).await
                                 }
@@ -109,6 +127,11 @@ impl Project {
         }
     }
 
+    /*
+        When a directory is created, check that it is a run directory,
+        and if it is shift the active run to this directory. The creation
+        of a new run directory should signal the start of a new run.
+     */
     fn handle_create_dir(&mut self, event: &Event) {
 
         tracing::trace!("Create dir occurred!");
@@ -131,6 +154,11 @@ impl Project {
         }
     }
 
+    /*
+        When a file is modified, check that it is a CoMPASS binary
+        data file, by chekcing the extension. If it is a CoMPASS binary, 
+        read all available new data from *every* file in the run. 
+     */
     async fn handle_modify_file(&mut self, event: &Event) {
         tracing::trace!("Modify file occurred!");
 
@@ -156,6 +184,10 @@ impl Project {
     }
 }
 
+/*
+    ActiveRun represents the active run directory in the Project.
+    Note that the data used is actually from the UNFILTERED directory.
+ */
 #[derive(Debug)]
 struct ActiveRun {
     directory: PathBuf,
@@ -171,6 +203,7 @@ impl ActiveRun {
             return Err(ProjectError::RunDirError);
         }
 
+        //Latch to data in UNFILTERED
         let data_directory = new_dir.join("/UNFILTERED/");
         if !data_directory.exists() {
             tracing::trace!("Data directory does not exist: {}", data_directory.display());
@@ -191,6 +224,7 @@ impl ActiveRun {
         return Ok(current_run);
     }
 
+    //Get messages from files and convert to Bytes
     fn read_data_from_all_files(&mut self) -> Bytes {
         let mut messages: Vec<Message> = vec![];
 

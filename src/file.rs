@@ -37,6 +37,10 @@ bitflags! {
     }
 }
 
+/*
+    Simple representation of a CoMPASS binary data file. 
+ */
+
 #[derive(Debug)]
 pub struct CompassFile {
     filepath: PathBuf,
@@ -52,6 +56,7 @@ impl CompassFile {
             Err(e) => return Err(CompassFileError::IOError(path.to_path_buf(), e))
         };
 
+        //Read the header
         let mut header:[u8; 2] = [0; 2];
         match file.read_exact(&mut header) {
             Ok(_) => {},
@@ -62,6 +67,7 @@ impl CompassFile {
         let mut datatype = CompassDataType::NONE;
         let mut datasize: usize = 16; //minimum 16 bytes for board, channel, timestamp, flags
 
+        //determine the header type and data size.
         if header_word & CompassDataType::ENERGY.bits() != 0 {
             datatype |= CompassDataType::ENERGY;
             datasize += 2;
@@ -88,6 +94,7 @@ impl CompassFile {
 
     }
 
+    //Read data from the file and make a Message
     pub fn read_data(&mut self) -> Result<Message, CompassFileError> {
         let mut message = Message::default();
         message.data_type = self.data_type;

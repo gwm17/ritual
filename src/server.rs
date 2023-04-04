@@ -7,6 +7,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, mpsc::{Receiver, Sender, channel}};
 use bytes::Bytes;
 
+/*
+    This file is kinda crowded, may need a refactor at some point.
+ */
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -35,6 +38,10 @@ impl Error for ServerError {
 
 }
 
+/*
+    A connection is an abstraction of a TCP stream. Our server only 
+    writes to connections; it never reads data sent back to the server.
+ */
 #[derive(Debug)]
 pub struct Connection {
     stream: TcpStream,
@@ -63,8 +70,13 @@ impl Connection {
     }
 }
 
-pub type ConnectionList = Vec<Connection>;
+//Shorthand type
+type ConnectionList = Vec<Connection>;
 
+/*
+    ServerListener wraps listening functionality. It does not actively store connections;
+    it merely sends them to the ConnectionHandler.
+ */
 #[derive(Debug)]
 pub struct ServerListener {
     listener: TcpListener,
@@ -74,7 +86,7 @@ pub struct ServerListener {
 
 impl ServerListener {
     
-    //Startup server by spawning a listener port
+    //Startup server by spawning a listener port. 
     pub async fn startup(addr: &str) -> Result<(ServerListener, Receiver<Connection>), ServerError> {
         let (tx, rx) = channel(5);
         let listener = match TcpListener::bind(addr).await {
@@ -101,6 +113,11 @@ impl ServerListener {
     }
 }
 
+/*
+    ConnectionHandler recieves incoming connections and adds them to 
+    the list of acitve connections. The maximum number of active connections
+    is limited to 5.
+ */
 #[derive(Debug)]
 pub struct ConnectionHandler {
     connection_queue: Receiver<Connection>,
@@ -137,6 +154,11 @@ impl ConnectionHandler {
     }
 }
 
+/*
+    ServerSender actively sends data to the active connections. ServerSender has
+    access to the list of active connections, and must be given a receiving channel
+    for data (Bytes) from the project.
+ */
 #[derive(Debug)]
 pub struct ServerSender {
     data_queue: Receiver<Bytes>,
@@ -152,6 +174,7 @@ impl ServerSender {
         loop {
             match self.data_queue.recv().await {
                 Some(data) => {
+                    //Try to hold this lock as short as possible, but shouldn't matter much in real use-cases
                     let mut list = self.connections.lock().await;
                     for cxn in list.iter_mut() {
                         match cxn.write(&data).await {
@@ -175,6 +198,11 @@ impl ServerSender {
 
 }
 
+/*
+    run_server wraps the creation of all server components as well as connecting the separate parts.
+    Requires an address for the server listener and a receiving channel for data from the project.
+    This function spawns tokio tasks.
+ */
 pub async fn run_server(address: &str, data_reciever: Receiver<Bytes>) -> Result<(), ServerError> {
     let connections = Arc::new(Mutex::new(ConnectionList::new()));
     let (mut listener, conn_reciever) = ServerListener::startup(address).await?;
