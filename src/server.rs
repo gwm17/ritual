@@ -101,6 +101,7 @@ impl ServerListener {
     }
 }
 
+#[derive(Debug)]
 pub struct ConnectionHandler {
     connection_queue: Receiver<Connection>,
     connections: Arc<Mutex<ConnectionList>>
@@ -136,6 +137,7 @@ impl ConnectionHandler {
     }
 }
 
+#[derive(Debug)]
 pub struct ServerSender {
     data_queue: Receiver<Bytes>,
     connections: Arc<Mutex<ConnectionList>>
@@ -171,4 +173,34 @@ impl ServerSender {
         Ok(())
     }
 
+}
+
+pub async fn run_server(address: &str, data_reciever: Receiver<Bytes>) -> Result<(), ServerError> {
+    let connections = Arc::new(Mutex::new(ConnectionList::new()));
+    let (mut listener, conn_reciever) = ServerListener::startup(address).await?;
+    let mut conn_handler = ConnectionHandler::new(conn_reciever, connections.clone());
+    let mut sender = ServerSender::new(data_reciever, connections.clone());
+
+    tokio::spawn(async move { 
+        match listener.wait_for_connection().await {
+            Ok(_) => {},
+            Err(e) => tracing::error!("Listener error: {}", e)
+        } 
+    });
+
+    tokio::spawn(async move {
+        match conn_handler.recieve_connection().await {
+            Ok(_) => {},
+            Err(e) => tracing::error!("ConnectionHandler error: {}", e)
+        }
+    });
+
+    tokio::spawn(async move {
+        match sender.wait_for_data().await {
+            Ok(_) => {},
+            Err(e) => tracing::error!("Sender error: {}", e)
+        }
+    });
+
+    Ok(())
 }
